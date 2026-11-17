@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -32,7 +31,7 @@ import kotlinx.coroutines.delay
 private val Purple = Color(0xFF6D28D9)
 private val Deep = Color(0xFF10081E)
 private val Gold = Color(0xFFFFD54A)
-private val Muted = Color(0xFFC8BCD7)
+private val Muted = Color(0xFFBFAFD4)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,74 +45,69 @@ class MainActivity : ComponentActivity() {
                     surface = Color(0xFF1A0F2E)
                 )
             ) {
-                HomeScreen(
-                    onStart = { requestServiceAction(KeepAliveService.ACTION_START, "iniciar") },
-                    onStop = { requestServiceAction(KeepAliveService.ACTION_STOP, "parar") },
-                    onRestart = { requestServiceAction(KeepAliveService.ACTION_RESTART, "reiniciar") },
-                    onRefresh = {
-                        val ok = TermuxBridge.execute(this, BotAction.STATUS)
-                        val message = getSharedPreferences(TermuxBridge.PREFS, MODE_PRIVATE)
-                            .getString(TermuxBridge.KEY_LAST_MESSAGE, "") ?: ""
-                        Toast.makeText(
-                            this,
-                            if (ok) "Consultando o Termux..." else message.ifBlank { "Não foi possível consultar o Termux." },
-                            Toast.LENGTH_LONG
-                        ).show()
-                    },
-                    onShowLogs = {
-                        val ok = TermuxBridge.execute(this, BotAction.LOGS)
-                        val message = getSharedPreferences(TermuxBridge.PREFS, MODE_PRIVATE)
-                            .getString(TermuxBridge.KEY_LAST_MESSAGE, "") ?: ""
-                        Toast.makeText(
-                            this,
-                            if (ok) "Buscando os logs no Termux..." else message.ifBlank { "Não foi possível buscar os logs." },
-                            Toast.LENGTH_LONG
-                        ).show()
-                    },
-                    onCopySetup = {
-                        copyText(TermuxBridge.SETUP_COMMAND, "Comando de integração copiado.")
-                    },
-                    onCopyPairing = {
-                        copyText("cd ~/Robo-Nicolas && bash start.sh", "Comando de autenticação copiado.")
-                    },
-                    onOpenPermissions = { openAppSettings() },
-                    onOpenTermux = { openTermux() },
-                    onOpenRepository = { openUrl("https://github.com/heyninja67-png/Starter-do-Nicolazinho") },
-                    onAutoRestartChanged = { enabled ->
-                        getSharedPreferences(TermuxBridge.PREFS, MODE_PRIVATE)
-                            .edit().putBoolean(TermuxBridge.KEY_AUTO_RESTART, enabled).apply()
-                        Toast.makeText(
-                            this,
-                            if (enabled) "Reconexão automática ativada." else "Reconexão automática desativada.",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
+                NicolasKeepAliveApp(
+                    onAction = ::runBotAction,
+                    onCopySetup = ::copySetupCommand,
+                    onCopyPairing = ::copyPairingCommand,
+                    onOpenAppSettings = ::openAppSettings,
+                    onOpenTermux = ::openTermux,
+                    onOpenBatterySettings = ::openBatterySettings,
+                    onOpenRepository = ::openRepository
                 )
             }
         }
     }
 
-    private fun requestServiceAction(action: String, label: String) {
-        val prefs = getSharedPreferences(TermuxBridge.PREFS, MODE_PRIVATE)
-        prefs.edit().putString(TermuxBridge.KEY_LAST_MESSAGE, "Solicitando ao Android: $label o Robô Nicolas...").apply()
+    private fun runBotAction(action: BotAction) {
+        val prefs = getSharedPreferences(TermuxBridge.PREFS, Context.MODE_PRIVATE)
+        val serviceAction = when (action) {
+            BotAction.START -> KeepAliveService.ACTION_START
+            BotAction.STOP -> KeepAliveService.ACTION_STOP
+            BotAction.RESTART -> KeepAliveService.ACTION_RESTART
+            else -> null
+        }
+
         try {
-            ContextCompat.startForegroundService(
-                this,
-                Intent(this, KeepAliveService::class.java).setAction(action)
-            )
-            Toast.makeText(this, "Pedido para $label enviado.", Toast.LENGTH_SHORT).show()
+            if (serviceAction != null) {
+                val pendingText = when (action) {
+                    BotAction.START -> "Solicitando início do Robô Nicolas…"
+                    BotAction.STOP -> "Solicitando parada segura do Robô Nicolas…"
+                    else -> "Solicitando reinicialização do Robô Nicolas…"
+                }
+                prefs.edit().putString(TermuxBridge.KEY_LAST_MESSAGE, pendingText).apply()
+                ContextCompat.startForegroundService(
+                    this,
+                    Intent(this, KeepAliveService::class.java).setAction(serviceAction)
+                )
+                Toast.makeText(this, "Comando " + action.name + " enviado.", Toast.LENGTH_SHORT).show()
+            } else {
+                val accepted = TermuxBridge.execute(this, action)
+                val message = prefs.getString(TermuxBridge.KEY_LAST_MESSAGE, null)
+                    ?: "Não foi possível enviar o comando."
+                Toast.makeText(
+                    this,
+                    if (accepted) "Solicitando " + action.name + "…" else message,
+                    if (accepted) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+                ).show()
+            }
         } catch (e: Exception) {
-            val message = "O Android não iniciou o serviço: ${e.message ?: e.javaClass.simpleName}"
+            val message = "Não foi possível executar " + action.name + ": " +
+                (e.message ?: e.javaClass.simpleName)
             prefs.edit().putString(TermuxBridge.KEY_LAST_MESSAGE, message).apply()
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun copyText(value: String, confirmation: String) {
+    private fun copyText(label: String, value: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Nicolas Keep Alive", value))
-        Toast.makeText(this, confirmation, Toast.LENGTH_LONG).show()
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
+        Toast.makeText(this, "$label copiado.", Toast.LENGTH_LONG).show()
     }
+
+    private fun copySetupCommand() = copyText("Comando de configuração do Termux", TermuxBridge.SETUP_COMMAND)
+
+    private fun copyPairingCommand() =
+        copyText("Comando de primeiro acesso", "cd ~/Robo-Nicolas && bash start.sh")
 
     private fun openAppSettings() {
         try {
@@ -123,7 +117,7 @@ class MainActivity : ComponentActivity() {
                 }
             )
         } catch (e: Exception) {
-            Toast.makeText(this, "Não consegui abrir as permissões: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Não consegui abrir as permissões: " + e.message, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -131,37 +125,45 @@ class MainActivity : ComponentActivity() {
         try {
             val launch = packageManager.getLaunchIntentForPackage(TermuxBridge.PACKAGE_TERMUX)
             if (launch == null) {
-                Toast.makeText(this, "Não encontrei o Termux instalado.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Termux não está instalado.", Toast.LENGTH_LONG).show()
             } else {
                 startActivity(launch)
             }
         } catch (e: Exception) {
-            Toast.makeText(this, "Não consegui abrir o Termux: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Não consegui abrir o Termux: " + e.message, Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun openUrl(url: String) {
+    private fun openBatterySettings() {
         try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            startActivity(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            )
+        } catch (_: Exception) {
+            openAppSettings()
+        }
+    }
+
+    private fun openRepository() {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/heyninja67-png/Starter-do-Nicolazinho")))
         } catch (e: Exception) {
-            Toast.makeText(this, "Nenhum navegador disponível para abrir o link.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Não consegui abrir o repositório: " + e.message, Toast.LENGTH_LONG).show()
         }
     }
 }
 
 @Composable
-private fun HomeScreen(
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-    onRestart: () -> Unit,
-    onRefresh: () -> Unit,
-    onShowLogs: () -> Unit,
+private fun NicolasKeepAliveApp(
+    onAction: (BotAction) -> Unit,
     onCopySetup: () -> Unit,
     onCopyPairing: () -> Unit,
-    onOpenPermissions: () -> Unit,
+    onOpenAppSettings: () -> Unit,
     onOpenTermux: () -> Unit,
-    onOpenRepository: () -> Unit,
-    onAutoRestartChanged: (Boolean) -> Unit
+    onOpenBatterySettings: () -> Unit,
+    onOpenRepository: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember {
@@ -170,21 +172,19 @@ private fun HomeScreen(
     var processRunning by remember { mutableStateOf(prefs.getBoolean(TermuxBridge.KEY_PROCESS_RUNNING, false)) }
     var whatsappConnected by remember { mutableStateOf(prefs.getBoolean(TermuxBridge.KEY_WHATSAPP_CONNECTED, false)) }
     var lastMessage by remember {
-        mutableStateOf(prefs.getString(TermuxBridge.KEY_LAST_MESSAGE, "Aguardando comando.") ?: "Aguardando comando.")
+        mutableStateOf(prefs.getString(TermuxBridge.KEY_LAST_MESSAGE, "Pronto para conectar ao Termux.") ?: "Pronto para conectar ao Termux.")
     }
-    var lastOutput by remember {
-        mutableStateOf(prefs.getString("last_command_output", "") ?: "")
-    }
+    var lastOutput by remember { mutableStateOf(prefs.getString("last_command_output", "") ?: "") }
     var autoRestart by remember { mutableStateOf(prefs.getBoolean(TermuxBridge.KEY_AUTO_RESTART, true)) }
     var termuxPermission by remember { mutableStateOf(TermuxBridge.hasRunCommandPermission(context)) }
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(0) }
     val termuxInstalled = remember { TermuxBridge.isInstalled(context) }
 
     LaunchedEffect(prefs) {
         while (true) {
             processRunning = prefs.getBoolean(TermuxBridge.KEY_PROCESS_RUNNING, false)
             whatsappConnected = prefs.getBoolean(TermuxBridge.KEY_WHATSAPP_CONNECTED, false)
-            lastMessage = prefs.getString(TermuxBridge.KEY_LAST_MESSAGE, "Aguardando comando.") ?: "Aguardando comando."
+            lastMessage = prefs.getString(TermuxBridge.KEY_LAST_MESSAGE, "Pronto para conectar ao Termux.") ?: "Pronto para conectar ao Termux."
             lastOutput = prefs.getString("last_command_output", "") ?: ""
             autoRestart = prefs.getBoolean(TermuxBridge.KEY_AUTO_RESTART, true)
             termuxPermission = TermuxBridge.hasRunCommandPermission(context)
@@ -192,86 +192,61 @@ private fun HomeScreen(
         }
     }
 
-    val processText = if (processRunning) "Processo do bot ativo" else "Processo não confirmado"
-    val whatsappText = when {
-        whatsappConnected -> "WhatsApp conectado"
-        processRunning -> "Bot ativo; WhatsApp verificando/reconectando"
-        else -> "WhatsApp sem confirmação de conexão"
-    }
-
+    val titles = listOf("Início", "Robô", "Versões", "Parear", "Ajustes")
     Box(
         Modifier.fillMaxSize().background(
             Brush.verticalGradient(listOf(Color(0xFF180B2B), Deep))
         )
     ) {
         Column(Modifier.fillMaxSize()) {
-            Column(
-                Modifier.weight(1f).fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp, vertical = 14.dp)
-            ) {
-                Text("Nicolas Keep Alive", color = Gold, style = MaterialTheme.typography.headlineSmall)
-                Text("Painel de controle do Robô Nicolas", color = Color(0xFFBFAFD4))
-                Spacer(Modifier.height(16.dp))
-
+            Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
                     0 -> HomePage(
-                        processRunning = processRunning,
-                        whatsappConnected = whatsappConnected,
-                        termuxInstalled = termuxInstalled,
-                        termuxPermission = termuxPermission,
-                        lastMessage = lastMessage,
-                        onStart = onStart,
-                        onStop = onStop,
-                        onRestart = onRestart,
-                        onRefresh = onRefresh
+                        processRunning, whatsappConnected, termuxInstalled, termuxPermission,
+                        lastMessage, onAction, onCopySetup, onOpenAppSettings
                     )
-                    1 -> BotPage(
-                        processText = processText,
-                        whatsappText = whatsappText,
-                        lastMessage = lastMessage,
-                        lastOutput = lastOutput,
-                        onStart = onStart,
-                        onStop = onStop,
-                        onRestart = onRestart,
-                        onRefresh = onRefresh,
-                        onShowLogs = onShowLogs
-                    )
-                    2 -> VersionsPage(
-                        onOpenRepository = onOpenRepository,
-                        onRefresh = onRefresh
-                    )
-                    3 -> PairingPage(
-                        lastOutput = lastOutput,
-                        onOpenTermux = onOpenTermux,
-                        onCopyPairing = onCopyPairing
-                    )
+                    1 -> BotPage(processRunning, whatsappConnected, lastMessage, lastOutput, onAction)
+                    2 -> VersionsPage(onOpenRepository)
+                    3 -> PairingPage(termuxInstalled, onCopyPairing, onOpenTermux)
                     else -> SettingsPage(
-                        autoRestart = autoRestart,
-                        termuxInstalled = termuxInstalled,
-                        termuxPermission = termuxPermission,
-                        onAutoRestartChanged = onAutoRestartChanged,
+                        autoRestart, termuxPermission,
+                        onAutoRestartChange = {
+                            prefs.edit().putBoolean(TermuxBridge.KEY_AUTO_RESTART, it).apply()
+                            autoRestart = it
+                        },
                         onCopySetup = onCopySetup,
-                        onOpenPermissions = onOpenPermissions,
+                        onOpenAppSettings = onOpenAppSettings,
+                        onOpenBatterySettings = onOpenBatterySettings,
                         onOpenTermux = onOpenTermux
                     )
                 }
-                Spacer(Modifier.height(12.dp))
             }
 
             NavigationBar(containerColor = Color(0xFF160C26)) {
-                val titles = listOf("Início", "Robô", "Versões", "Parear", "Configurações")
-                val symbols = listOf("⌂", "●", "↻", "⌁", "⚙")
                 titles.forEachIndexed { index, title ->
                     NavigationBarItem(
                         selected = tab == index,
                         onClick = { tab = index },
-                        icon = { Text(symbols[index], color = if (tab == index) Gold else Muted) },
-                        label = { Text(title) }
+                        icon = { Text(listOf("⌂", "●", "↻", "⌁", "⚙")[index]) },
+                        label = { Text(title, maxLines = 1) }
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PageColumn(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(title, color = Gold, style = MaterialTheme.typography.headlineSmall)
+        Text(subtitle, color = Muted, style = MaterialTheme.typography.bodyMedium)
+        content()
+        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -282,174 +257,227 @@ private fun HomePage(
     termuxInstalled: Boolean,
     termuxPermission: Boolean,
     lastMessage: String,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-    onRestart: () -> Unit,
-    onRefresh: () -> Unit
+    onAction: (BotAction) -> Unit,
+    onCopySetup: () -> Unit,
+    onOpenAppSettings: () -> Unit
 ) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF24133D)),
-        shape = RoundedCornerShape(24.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(18.dp)) {
-            Text("ROBÔ NICOLAS", color = Color.White, style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                when {
-                    whatsappConnected -> "● Processo ativo • WhatsApp conectado"
-                    processRunning -> "● Processo ativo • verificando WhatsApp"
-                    else -> "● Robô parado ou aguardando o Termux"
-                },
-                color = when {
-                    whatsappConnected -> Color(0xFF8EF0A8)
-                    processRunning -> Gold
-                    else -> Color(0xFFFF8A80)
+    PageColumn("Nicolas Keep Alive", "Painel de controle do Robô Nicolas") {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF24133D)),
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("ROBÔ NICOLAS", color = Color.White, style = MaterialTheme.typography.titleLarge)
+                Text(
+                    when {
+                        whatsappConnected -> "● Processo ativo • WhatsApp conectado"
+                        processRunning -> "● Processo ativo • verificando WhatsApp"
+                        else -> "● Robô parado ou aguardando resposta do Termux"
+                    },
+                    color = when {
+                        whatsappConnected -> Color(0xFF8EF0A8)
+                        processRunning -> Gold
+                        else -> Color(0xFFFF8A80)
+                    }
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { onAction(BotAction.START) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Gold),
+                        modifier = Modifier.weight(1f)
+                    ) { Text("INICIAR", color = Deep) }
+                    OutlinedButton(
+                        onClick = { onAction(BotAction.STOP) },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("PARAR") }
                 }
-            )
-            Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onStart,
-                    colors = ButtonDefaults.buttonColors(containerColor = Gold),
-                    modifier = Modifier.weight(1f)
-                ) { Text("INICIAR", color = Deep) }
-                OutlinedButton(onClick = onStop, modifier = Modifier.weight(1f)) { Text("PARAR") }
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onRestart, modifier = Modifier.fillMaxWidth()) {
-                Text("REINICIAR ROBÔ")
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
-                Text("ATUALIZAR STATUS")
+                OutlinedButton(
+                    onClick = { onAction(BotAction.RESTART) },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("REINICIAR ROBÔ") }
             }
         }
-    }
 
-    Spacer(Modifier.height(12.dp))
-    StatusCard("Termux", when {
-        !termuxInstalled -> "Termux não está instalado"
-        !termuxPermission -> "Falta autorizar RUN_COMMAND nas permissões do Android"
-        else -> "Instalado e com permissão RUN_COMMAND"
-    })
-    StatusCard("Processo", if (processRunning) "Em execução" else "Sem confirmação de execução")
-    StatusCard("WhatsApp / Baileys", if (whatsappConnected) "Conectado" else "Aguardando confirmação")
-    MessageCard("Último resultado", lastMessage)
+        StatusCard("Processo do bot", if (processRunning) "Processo ativo" else "Sem processo confirmado")
+        StatusCard("WhatsApp / Baileys", if (whatsappConnected) "Conectado" else "Sem confirmação de conexão")
+        StatusCard(
+            "Termux",
+            when {
+                !termuxInstalled -> "Termux não instalado"
+                !termuxPermission -> "Permissão RUN_COMMAND não concedida"
+                else -> "Instalado • permissão concedida"
+            }
+        )
+        Button(
+            onClick = { onAction(BotAction.STATUS) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Purple)
+        ) { Text("ATUALIZAR STATUS") }
+        if (!termuxPermission || !termuxInstalled) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF2B1A43)),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("LIBERAR INTEGRAÇÃO", color = Gold, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Instale o Termux e habilite RUN_COMMAND nas permissões do Android. No Termux, também execute o comando de configuração abaixo.",
+                        color = Muted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Button(
+                        onClick = onCopySetup,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Gold)
+                    ) { Text("COPIAR COMANDO DO TERMUX", color = Deep) }
+                    OutlinedButton(onClick = onOpenAppSettings, modifier = Modifier.fillMaxWidth()) {
+                        Text("ABRIR PERMISSÕES DO APP")
+                    }
+                }
+            }
+        }
+        InfoCard("Último resultado", lastMessage)
+    }
 }
 
 @Composable
 private fun BotPage(
-    processText: String,
-    whatsappText: String,
+    processRunning: Boolean,
+    whatsappConnected: Boolean,
     lastMessage: String,
     lastOutput: String,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-    onRestart: () -> Unit,
-    onRefresh: () -> Unit,
-    onShowLogs: () -> Unit
+    onAction: (BotAction) -> Unit
 ) {
-    SectionTitle("Controle do robô")
-    StatusCard("Processo", processText)
-    StatusCard("WhatsApp / Baileys", whatsappText)
-    Spacer(Modifier.height(10.dp))
-    Button(onClick = onStart, modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(containerColor = Gold)) {
-        Text("INICIAR ROBÔ", color = Deep)
-    }
-    OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("PARAR ROBÔ") }
-    OutlinedButton(onClick = onRestart, modifier = Modifier.fillMaxWidth()) { Text("REINICIAR ROBÔ") }
-    OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text("ATUALIZAR STATUS") }
-    OutlinedButton(onClick = onShowLogs, modifier = Modifier.fillMaxWidth()) { Text("CARREGAR LOGS DO TERMUX") }
-    Spacer(Modifier.height(10.dp))
-    MessageCard("Último resultado", lastMessage)
-    MessageCard("Saída do último comando", lastOutput.ifBlank { "Nenhum log foi carregado nesta sessão. Toque em CARREGAR LOGS DO TERMUX." })
-}
-
-@Composable
-private fun VersionsPage(onOpenRepository: () -> Unit, onRefresh: () -> Unit) {
-    SectionTitle("Versão do aplicativo")
-    MessageCard("Nicolas Keep Alive", "Versão instalada: ${BuildConfig.VERSION_NAME} (código ${BuildConfig.VERSION_CODE}).")
-    MessageCard(
-        "Sobre as atualizações",
-        "O app controla o Robô Nicolas que já existe no Termux. Esta tela mostra a versão instalada e abre o repositório do projeto; ela não substitui nem atualiza os arquivos do bot."
-    )
-    Button(onClick = onOpenRepository, modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(containerColor = Gold)) {
-        Text("ABRIR REPOSITÓRIO NO GITHUB", color = Deep)
-    }
-    OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
-        Text("VERIFICAR STATUS DO ROBÔ")
+    PageColumn("Controle do Robô", "Ações enviadas ao bot já instalado em ~/Robo-Nicolas") {
+        StatusCard("Processo", if (processRunning) "Ativo" else "Parado / não confirmado")
+        StatusCard("WhatsApp", if (whatsappConnected) "Conectado" else "Não confirmado")
+        Button(
+            onClick = { onAction(BotAction.START) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Gold)
+        ) { Text("INICIAR ROBÔ", color = Deep) }
+        OutlinedButton(onClick = { onAction(BotAction.STOP) }, modifier = Modifier.fillMaxWidth()) {
+            Text("PARAR ROBÔ")
+        }
+        OutlinedButton(onClick = { onAction(BotAction.RESTART) }, modifier = Modifier.fillMaxWidth()) {
+            Text("REINICIAR ROBÔ")
+        }
+        OutlinedButton(onClick = { onAction(BotAction.STATUS) }, modifier = Modifier.fillMaxWidth()) {
+            Text("CONSULTAR STATUS")
+        }
+        OutlinedButton(onClick = { onAction(BotAction.LOGS) }, modifier = Modifier.fillMaxWidth()) {
+            Text("CARREGAR LOGS")
+        }
+        InfoCard("Resposta mais recente", lastMessage)
+        InfoCard("Saída do Termux", if (lastOutput.isBlank()) "Nenhum log recebido ainda. Toque em CARREGAR LOGS." else lastOutput)
     }
 }
 
 @Composable
-private fun PairingPage(lastOutput: String, onOpenTermux: () -> Unit, onCopyPairing: () -> Unit) {
-    SectionTitle("Sessão do WhatsApp")
-    val sessionText = when {
-        lastOutput.contains("SESSION=SAVED") -> "Sessão Baileys salva no Termux."
-        lastOutput.contains("SESSION=MISSING") -> "Não foi encontrada uma sessão salva no último diagnóstico."
-        else -> "Consulte o status do robô para verificar a sessão existente."
+private fun VersionsPage(onOpenRepository: () -> Unit) {
+    PageColumn("Versões", "Informações da instalação deste aplicativo") {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF24133D)),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("NICOLAS KEEP ALIVE", color = Gold, style = MaterialTheme.typography.titleLarge)
+                Text("Versão " + BuildConfig.VERSION_NAME, color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                Text("Código " + BuildConfig.VERSION_CODE, color = Muted)
+                Text(
+                    "O app controla a instalação existente no Termux. Não substitui o Robô Nicolas nem altera a sessão salva do WhatsApp.",
+                    color = Muted
+                )
+            }
+        }
+        Button(
+            onClick = onOpenRepository,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Purple)
+        ) { Text("ABRIR REPOSITÓRIO / ATUALIZAÇÕES") }
+        InfoCard(
+            "Atualização automática",
+            "Ainda não existe um servidor de atualização configurado neste projeto. Use o repositório para consultar as versões publicadas."
+        )
     }
-    MessageCard("Sessão atual", sessionText)
-    MessageCard(
-        "Importante",
-        "O Nicolas Keep Alive não apaga nem recria a sessão. Para fazer um primeiro pareamento ou corrigir um logout, abra o Termux e execute o comando manual. Quando a sessão já existe, o app usa os arquivos salvos em ~/Robo-Nicolas/auth."
-    )
-    Button(onClick = onOpenTermux, modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(containerColor = Gold)) {
-        Text("ABRIR TERMUX", color = Deep)
-    }
-    OutlinedButton(onClick = onCopyPairing, modifier = Modifier.fillMaxWidth()) {
-        Text("COPIAR COMANDO DE AUTENTICAÇÃO")
+}
+
+@Composable
+private fun PairingPage(termuxInstalled: Boolean, onCopyPairing: () -> Unit, onOpenTermux: () -> Unit) {
+    PageColumn("Pareamento do WhatsApp", "O primeiro login é feito pelo próprio Termux") {
+        InfoCard(
+            "Sua sessão será preservada",
+            "O Nicolas Keep Alive não apaga auth/, não desconecta sua conta e não gera um novo QR automaticamente. Se a sessão já estiver salva e válida, basta iniciar o robô."
+        )
+        StatusCard("Termux", if (termuxInstalled) "Instalado" else "Não encontrado")
+        Button(
+            onClick = onOpenTermux,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Gold)
+        ) { Text("ABRIR TERMUX", color = Deep) }
+        OutlinedButton(onClick = onCopyPairing, modifier = Modifier.fillMaxWidth()) {
+            Text("COPIAR COMANDO DE PRIMEIRO LOGIN")
+        }
+        InfoCard(
+            "Quando usar o comando",
+            "Somente se ainda não existir uma sessão salva ou se o WhatsApp tiver sido desconectado. No Termux, o comando é: cd ~/Robo-Nicolas && bash start.sh. Siga o menu de pareamento exibido no terminal."
+        )
     }
 }
 
 @Composable
 private fun SettingsPage(
     autoRestart: Boolean,
-    termuxInstalled: Boolean,
     termuxPermission: Boolean,
-    onAutoRestartChanged: (Boolean) -> Unit,
+    onAutoRestartChange: (Boolean) -> Unit,
     onCopySetup: () -> Unit,
-    onOpenPermissions: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+    onOpenBatterySettings: () -> Unit,
     onOpenTermux: () -> Unit
 ) {
-    SectionTitle("Configurações")
-    Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF24133D)),
-        shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+    PageColumn("Configurações", "Permissões e comportamento do monitor") {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF24133D)),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Column(Modifier.weight(1f)) {
-                Text("Reconexão automática", color = Gold)
-                Text("Tenta recuperar o supervisor após uma queda, depois de uma conexão já confirmada.", color = Muted)
+            Row(
+                Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Reconexão automática", color = Gold)
+                    Text(
+                        "Tenta recuperar o supervisor após uma queda, usando a sessão já salva.",
+                        color = Muted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Switch(checked = autoRestart, onCheckedChange = onAutoRestartChange)
             }
-            Switch(checked = autoRestart, onCheckedChange = onAutoRestartChanged)
+        }
+        StatusCard(
+            "Permissão RUN_COMMAND",
+            if (termuxPermission) "Concedida" else "Precisa ser liberada nas permissões do Android"
+        )
+        Button(
+            onClick = onCopySetup,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Gold)
+        ) { Text("COPIAR CONFIGURAÇÃO DO TERMUX", color = Deep) }
+        OutlinedButton(onClick = onOpenAppSettings, modifier = Modifier.fillMaxWidth()) {
+            Text("ABRIR PERMISSÕES DO NICOLAS KEEP ALIVE")
+        }
+        OutlinedButton(onClick = onOpenTermux, modifier = Modifier.fillMaxWidth()) {
+            Text("ABRIR TERMUX")
+        }
+        OutlinedButton(onClick = onOpenBatterySettings, modifier = Modifier.fillMaxWidth()) {
+            Text("CONFIGURAR BATERIA / SEGUNDO PLANO")
         }
     }
-    Spacer(Modifier.height(10.dp))
-    StatusCard("Termux instalado", if (termuxInstalled) "Sim" else "Não")
-    StatusCard("Permissão RUN_COMMAND", if (termuxPermission) "Concedida" else "Pendente")
-    Button(onClick = onCopySetup, modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(containerColor = Gold)) {
-        Text("COPIAR COMANDO DE CONFIGURAÇÃO", color = Deep)
-    }
-    OutlinedButton(onClick = onOpenTermux, modifier = Modifier.fillMaxWidth()) { Text("ABRIR TERMUX") }
-    OutlinedButton(onClick = onOpenPermissions, modifier = Modifier.fillMaxWidth()) {
-        Text("ABRIR PERMISSÕES DO APLICATIVO")
-    }
-}
-
-@Composable
-private fun SectionTitle(title: String) {
-    Text(title, color = Gold, style = MaterialTheme.typography.titleLarge)
-    Spacer(Modifier.height(12.dp))
 }
 
 @Composable
@@ -457,26 +485,28 @@ private fun StatusCard(title: String, value: String) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1F1233)),
         shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(14.dp)) {
-            Text(title, color = Gold)
-            Text(value, color = Muted)
+        Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = Gold)
+                Text(value, color = Muted)
+            }
+            Text("●", color = Color(0xFF8EF0A8))
         }
     }
 }
 
 @Composable
-private fun MessageCard(title: String, value: String) {
+private fun InfoCard(title: String, value: String) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF2B1A43)),
         shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(title, color = Gold, style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
-            Text(value, color = Muted)
+            Text(value, color = Muted, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
