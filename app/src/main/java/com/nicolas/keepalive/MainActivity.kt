@@ -11,6 +11,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -118,7 +120,7 @@ private fun HomeScreen(
             Brush.verticalGradient(listOf(Color(0xFF180B2B), Deep))
         )
     ) {
-        Column(Modifier.fillMaxSize().padding(18.dp)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp)) {\n            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
             Text("Nicolas Keep Alive", color = Gold, style = MaterialTheme.typography.headlineSmall)
             Text("Seu painel do Robô Nicolas", color = Color(0xFFBFAFD4))
             Spacer(Modifier.height(18.dp))
