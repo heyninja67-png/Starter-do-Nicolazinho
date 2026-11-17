@@ -117,7 +117,7 @@ object TermuxBridge {
             [ -s "§PID_FILE" ] && PID="§(cat "§PID_FILE" 2>/dev/null)"
             PROCESS=STOPPED
             if [[ "§PID" =~ ^[0-9]+§ ]] && kill -0 "§PID" 2>/dev/null && [ -r "/proc/§PID/cmdline" ]; then
-                CMD="§(tr '\\0' ' ' < "/proc/§PID/cmdline" 2>/dev/null)"
+                CMD="§(tr '\0' ' ' < "/proc/§PID/cmdline" 2>/dev/null)"
                 CWD="§(readlink "/proc/§PID/cwd" 2>/dev/null)"
                 if [ "§CWD" = "§BOT_DIR" ] && [[ "§CMD" == *start.sh* ]]; then PROCESS=RUNNING; fi
             fi
@@ -150,7 +150,7 @@ object TermuxBridge {
         return when (action) {
             BotAction.START -> """
                 set +e
-                §state
+                $state
                 if [ ! -f .env ]; then echo "ERRO: .env não encontrado; o bot ainda não foi instalado/configurado."; echo "BOT_PROCESS=STOPPED"; exit 21; fi
                 if [ ! -f auth/creds.json ]; then
                     echo "ERRO: sessão Baileys não encontrada. Por segurança, o app não cria um novo pareamento."
@@ -167,13 +167,13 @@ object TermuxBridge {
                     exit "§RC"
                 fi
                 sleep 1
-                §status
+                $status
                 exit 0
             """.trimIndent().replace('§', '$')
 
             BotAction.STOP -> """
                 set +e
-                §state
+                $state
                 if [ ! -f stop.sh ]; then echo "ERRO: stop.sh não encontrado."; exit 23; fi
                 bash stop.sh
                 RC=§?
@@ -189,7 +189,7 @@ object TermuxBridge {
 
             BotAction.RESTART -> """
                 set +e
-                §state
+                $state
                 if [ ! -f auth/creds.json ]; then echo "ERRO: sessão Baileys não encontrada; não será feito novo pareamento."; exit 22; fi
                 bash stop.sh
                 RC=§?
@@ -199,18 +199,18 @@ object TermuxBridge {
                 RC=§?
                 if [ "§RC" -ne 0 ]; then echo "BOT_PROCESS=STOPPED"; tail -n 30 logs/supervisor.log 2>/dev/null; exit "§RC"; fi
                 sleep 1
-                §status
+                $status
                 exit 0
             """.trimIndent().replace('§', '$')
 
             BotAction.STATUS -> """
-                §state
-                §status
+                $state
+                $status
                 exit 0
             """.trimIndent().replace('§', '$')
 
             BotAction.LOGS -> """
-                §state
+                $state
                 echo "----- logs/supervisor.log -----"
                 tail -n 40 logs/supervisor.log 2>/dev/null || true
                 echo "----- logs/bot.log -----"
