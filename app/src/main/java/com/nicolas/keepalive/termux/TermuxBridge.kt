@@ -119,7 +119,7 @@ object TermuxBridge {
             if [[ "§PID" =~ ^[0-9]+§ ]] && kill -0 "§PID" 2>/dev/null && [ -r "/proc/§PID/cmdline" ]; then
                 CMD="§(tr '\0' ' ' < "/proc/§PID/cmdline" 2>/dev/null)"
                 CWD="§(readlink "/proc/§PID/cwd" 2>/dev/null)"
-                if [ "§CWD" = "§BOT_DIR" ] && [[ "§CMD" == *start.sh* ]]; then PROCESS=RUNNING; fi
+                if [ "§CWD" = "§BOT_DIR" ] && [[ "§CMD" == *start-bg.sh* || "§CMD" == *start.sh* || "§CMD" == *supervisor* || "§CMD" == *bridge/index.js* ]]; then PROCESS=RUNNING; fi
             fi
             echo "BOT_PROCESS=§PROCESS"
             if [ "§PROCESS" = RUNNING ]; then
@@ -158,9 +158,11 @@ object TermuxBridge {
                     echo "Abra o Termux e faça o primeiro login manualmente com: cd ~/Robo-Nicolas && bash start.sh"
                     exit 22
                 fi
-                if [ ! -f start-bg.sh ] || [ ! -f stop.sh ]; then echo "ERRO: scripts start-bg.sh/stop.sh não encontrados.";
-                echo "START_SCRIPT=BACKGROUND"; exit 23; fi
-                bash start-bg.sh
+                if [ ! -f start-bg.sh ] || [ ! -f stop.sh ]; then echo "ERRO: scripts start-bg.sh/stop.sh não encontrados."; exit 23; fi
+                echo "START_SCRIPT=BACKGROUND"
+                nohup bash start-bg.sh </dev/null >> logs/keepalive-control.log 2>&1 &
+                CONTROL_PID=§!
+                echo "CONTROL_PID=§CONTROL_PID"
                 RC=§?
                 if [ "§RC" -ne 0 ]; then
                     echo "BOT_PROCESS=STOPPED"
@@ -196,7 +198,9 @@ object TermuxBridge {
                 RC=§?
                 if [ "§RC" -ne 0 ]; then echo "ERRO: não consegui parar o processo atual."; exit "§RC"; fi
                 sleep 2
-                bash start-bg.sh
+                nohup bash start-bg.sh </dev/null >> logs/keepalive-control.log 2>&1 &
+                CONTROL_PID=§!
+                echo "CONTROL_PID=§CONTROL_PID"
                 RC=§?
                 if [ "§RC" -ne 0 ]; then echo "BOT_PROCESS=STOPPED"; tail -n 30 logs/supervisor.log 2>/dev/null; exit "§RC"; fi
                 sleep 1
