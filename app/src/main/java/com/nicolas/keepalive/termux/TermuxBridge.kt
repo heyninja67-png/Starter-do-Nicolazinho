@@ -158,7 +158,8 @@ object TermuxBridge {
                     echo "Abra o Termux e faça o primeiro login manualmente com: cd ~/Robo-Nicolas && bash start.sh"
                     exit 22
                 fi
-                if [ ! -f start-bg.sh ] || [ ! -f stop.sh ]; then echo "ERRO: scripts start-bg.sh/stop.sh não encontrados."; exit 23; fi
+                if [ ! -f start-bg.sh ] || [ ! -f stop.sh ]; then echo "ERRO: scripts start-bg.sh/stop.sh não encontrados.";
+                echo "START_SCRIPT=BACKGROUND"; exit 23; fi
                 bash start-bg.sh
                 RC=§?
                 if [ "§RC" -ne 0 ]; then
