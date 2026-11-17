@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.NicolasKeepAlive" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#130B25</item>
+        <item name="android:navigationBarColor">#0D0718</item>
+    </style>
+</resources>
