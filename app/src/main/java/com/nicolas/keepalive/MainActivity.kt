@@ -314,7 +314,7 @@ private fun HomePage(
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Purple)
         ) { Text("ATUALIZAR STATUS") }
-        if (!termuxPermission || !termuxInstalled) {
+        if (true) { // Sempre mostrar as instruções: allow-external-apps pode estar desativado mesmo com RUN_COMMAND concedida.
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF2B1A43)),
                 shape = RoundedCornerShape(18.dp),
