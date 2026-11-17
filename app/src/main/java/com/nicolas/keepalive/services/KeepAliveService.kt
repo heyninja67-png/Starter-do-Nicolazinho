@@ -16,23 +16,6 @@ class KeepAliveService : Service() {
 
     private val monitor = object : Runnable {
         override fun run() {
-            val prefs = getSharedPreferences(TermuxBridge.PREFS, MODE_PRIVATE)
-            val now = System.currentTimeMillis()
-            val resultAt = prefs.getLong(TermuxBridge.KEY_LAST_RESULT_AT, 0L)
-            val processRunning = prefs.getBoolean(TermuxBridge.KEY_PROCESS_RUNNING, false)
-            val wasConnected = prefs.getBoolean(TermuxBridge.KEY_WAS_CONNECTED, false)
-            val autoRestart = prefs.getBoolean(TermuxBridge.KEY_AUTO_RESTART, true)
-            val lastRestart = prefs.getLong(TermuxBridge.KEY_LAST_AUTO_RESTART_AT, 0L)
-
-            // Usa somente o estado devolvido pelo Termux. Evita reiniciar antes da primeira resposta.
-            if (autoRestart && wasConnected && !processRunning &&
-                resultAt > 0L && now - resultAt < 120_000L &&
-                now - lastRestart > 180_000L
-            ) {
-                prefs.edit().putLong(TermuxBridge.KEY_LAST_AUTO_RESTART_AT, now).apply()
-                TermuxBridge.execute(this@KeepAliveService, BotAction.START)
-            }
-
             TermuxBridge.execute(this@KeepAliveService, BotAction.STATUS)
             refreshNotification()
             handler.postDelayed(this, MONITOR_INTERVAL_MS)
@@ -43,13 +26,9 @@ class KeepAliveService : Service() {
         super.onCreate()
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID,
-                "Nicolas Keep Alive",
-                NotificationManager.IMPORTANCE_LOW
-            )
+            NotificationChannel(CHANNEL_ID, "Nicolas Keep Alive", NotificationManager.IMPORTANCE_LOW)
         )
-        startForeground(NOTIFICATION_ID, buildNotification("Preparando monitoramento"))
+        startForeground(NOTIFICATION_ID, buildNotification("Conectando ao Termux"))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -74,7 +53,6 @@ class KeepAliveService : Service() {
                 return START_NOT_STICKY
             }
         }
-
         handler.removeCallbacks(monitor)
         handler.postDelayed(monitor, MONITOR_INTERVAL_MS)
         return START_STICKY
@@ -82,15 +60,15 @@ class KeepAliveService : Service() {
 
     private fun refreshNotification() {
         val prefs = getSharedPreferences(TermuxBridge.PREFS, MODE_PRIVATE)
-        val processRunning = prefs.getBoolean(TermuxBridge.KEY_PROCESS_RUNNING, false)
+        val process = prefs.getBoolean(TermuxBridge.KEY_PROCESS_RUNNING, false)
         val connected = prefs.getBoolean(TermuxBridge.KEY_WHATSAPP_CONNECTED, false)
-        val text = when {
+        val message = when {
             connected -> "Robô Nicolas ativo • WhatsApp conectado"
-            processRunning -> "Robô Nicolas em execução • verificando WhatsApp"
+            process -> "Robô Nicolas em execução • WhatsApp verificando"
             else -> "Monitorando • aguardando resposta do Termux"
         }
         getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID, buildNotification(text))
+            .notify(NOTIFICATION_ID, buildNotification(message))
     }
 
     private fun buildNotification(message: String): Notification =

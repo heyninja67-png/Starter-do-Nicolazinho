@@ -1,7 +1,13 @@
 package com.nicolas.keepalive
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -40,28 +46,33 @@ class MainActivity : ComponentActivity() {
                     onStart = {
                         ContextCompat.startForegroundService(
                             this,
-                            Intent(this, KeepAliveService::class.java)
-                                .setAction(KeepAliveService.ACTION_START)
+                            Intent(this, KeepAliveService::class.java).setAction(KeepAliveService.ACTION_START)
                         )
                     },
                     onStop = {
                         ContextCompat.startForegroundService(
                             this,
-                            Intent(this, KeepAliveService::class.java)
-                                .setAction(KeepAliveService.ACTION_STOP)
+                            Intent(this, KeepAliveService::class.java).setAction(KeepAliveService.ACTION_STOP)
                         )
                     },
                     onRestart = {
                         ContextCompat.startForegroundService(
                             this,
-                            Intent(this, KeepAliveService::class.java)
-                                .setAction(KeepAliveService.ACTION_RESTART)
+                            Intent(this, KeepAliveService::class.java).setAction(KeepAliveService.ACTION_RESTART)
                         )
                     },
                     onRefresh = { TermuxBridge.execute(this, BotAction.STATUS) },
-                    onAutoRestartChange = { enabled ->
-                        getSharedPreferences(TermuxBridge.PREFS, MODE_PRIVATE)
-                            .edit().putBoolean(TermuxBridge.KEY_AUTO_RESTART, enabled).apply()
+                    onCopySetup = {
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Configurar Termux", TermuxBridge.SETUP_COMMAND))
+                        Toast.makeText(this, "Comando copiado. Cole no Termux e execute.", Toast.LENGTH_LONG).show()
+                    },
+                    onOpenPermissions = {
+                        startActivity(
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.parse("package:$packageName")
+                            }
+                        )
                     }
                 )
             }
@@ -75,20 +86,21 @@ private fun HomeScreen(
     onStop: () -> Unit,
     onRestart: () -> Unit,
     onRefresh: () -> Unit,
-    onAutoRestartChange: (Boolean) -> Unit
+    onCopySetup: () -> Unit,
+    onOpenPermissions: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember {
-        context.getSharedPreferences(TermuxBridge.PREFS, android.content.Context.MODE_PRIVATE)
+        context.getSharedPreferences(TermuxBridge.PREFS, Context.MODE_PRIVATE)
     }
     var processRunning by remember { mutableStateOf(prefs.getBoolean(TermuxBridge.KEY_PROCESS_RUNNING, false)) }
     var whatsappConnected by remember { mutableStateOf(prefs.getBoolean(TermuxBridge.KEY_WHATSAPP_CONNECTED, false)) }
     var lastMessage by remember { mutableStateOf(prefs.getString(TermuxBridge.KEY_LAST_MESSAGE, "Aguardando comando.") ?: "Aguardando comando.") }
     var autoRestart by remember { mutableStateOf(prefs.getBoolean(TermuxBridge.KEY_AUTO_RESTART, true)) }
     var tab by remember { mutableStateOf(0) }
-    val titles = listOf("Início", "Robô Nicolas", "Versões", "Parear", "Configurações")
+    var termuxPermission by remember { mutableStateOf(TermuxBridge.hasRunCommandPermission(context)) }
     val termuxInstalled = remember { TermuxBridge.isInstalled(context) }
-    val termuxPermission = remember { TermuxBridge.hasRunCommandPermission(context) }
+    val titles = listOf("Início", "Robô Nicolas", "Versões", "Parear", "Configurações")
 
     LaunchedEffect(prefs) {
         while (true) {
@@ -96,6 +108,7 @@ private fun HomeScreen(
             whatsappConnected = prefs.getBoolean(TermuxBridge.KEY_WHATSAPP_CONNECTED, false)
             lastMessage = prefs.getString(TermuxBridge.KEY_LAST_MESSAGE, "Aguardando comando.") ?: "Aguardando comando."
             autoRestart = prefs.getBoolean(TermuxBridge.KEY_AUTO_RESTART, true)
+            termuxPermission = TermuxBridge.hasRunCommandPermission(context)
             delay(1000)
         }
     }
@@ -148,15 +161,15 @@ private fun HomeScreen(
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
             StatusCard(
                 "Processo do bot",
-                if (processRunning) "PID de inicialização ativo" else "Sem processo confirmado"
+                if (processRunning) "Supervisor start.sh ativo" else "Sem processo confirmado"
             )
             StatusCard(
                 "WhatsApp / Baileys",
                 when {
-                    whatsappConnected -> "Conectado (mensagem de autenticação detectada)"
+                    whatsappConnected -> "Conectado • autenticação confirmada pelo log"
                     processRunning -> "Inicializando ou reconectando com a sessão salva"
                     else -> "Sem confirmação de conexão"
                 }
@@ -165,31 +178,55 @@ private fun HomeScreen(
                 "Termux",
                 when {
                     !termuxInstalled -> "Termux não instalado"
-                    !termuxPermission -> "Falta a permissão RUN_COMMAND"
-                    else -> "Instalado e autorizado"
+                    !termuxPermission -> "Permissão RUN_COMMAND ainda não concedida"
+                    else -> "Instalado • permissão RUN_COMMAND concedida"
                 }
             )
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF2B1A43)),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("LIBERAR INTEGRAÇÃO NO TERMUX", color = Gold, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "O Termux exige allow-external-apps=true antes de aceitar comandos externos. Copie o comando, abra o Termux, cole e execute uma vez. Depois permita 'Run commands in Termux environment' nas permissões deste aplicativo.",
+                        color = Color(0xFFC8BCD7),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = onCopySetup,
+                        colors = ButtonDefaults.buttonColors(containerColor = Gold),
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("COPIAR COMANDO PARA O TERMUX", color = Deep) }
+                    OutlinedButton(onClick = onOpenPermissions, modifier = Modifier.fillMaxWidth()) {
+                        Text("ABRIR PERMISSÕES DO NICOLAS KEEP ALIVE")
+                    }
+                }
+            }
 
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Reconexão automática", color = Gold)
-                    Text("Reinicia o processo se ele cair após uma conexão válida.", color = Color(0xFFBFAFD4), style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "Recupera o supervisor se ele cair após uma conexão confirmada.",
+                        color = Color(0xFFBFAFD4),
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
-                Switch(
-                    checked = autoRestart,
-                    onCheckedChange = {
-                        autoRestart = it
-                        onAutoRestartChange(it)
-                    }
-                )
+                Switch(checked = autoRestart, onCheckedChange = {
+                    autoRestart = it
+                    prefs.edit().putBoolean(TermuxBridge.KEY_AUTO_RESTART, it).apply()
+                })
             }
-            Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
                 Text("ATUALIZAR STATUS")
             }
             Text(
-                lastMessage.take(240),
+                lastMessage.take(320),
                 color = Color(0xFFBFAFD4),
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 8.dp)
@@ -215,12 +252,9 @@ private fun StatusCard(title: String, value: String) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1F1233)),
         shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
     ) {
-        Row(
-            Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, color = Gold)
                 Text(value, color = Color(0xFFC8BCD7))

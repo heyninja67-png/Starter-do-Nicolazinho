@@ -1,39 +1,54 @@
 # Nicolas Keep Alive
 
-Aplicativo Android para controlar o Robô Nicolas que já está instalado no Termux. Este projeto mantém o nome, identidade roxa/dourada, navegação, estrutura de versões e validador de pareamento do aplicativo original.
+Painel Android para gerenciar o Robô Nicolas já instalado em `~/Robo-Nicolas` no Termux. O APK não incorpora nem substitui o bot; envia ações controladas ao Termux e exibe os resultados.
 
-## Integração real com Termux
+## Configuração obrigatória do Termux
 
-O app usa o serviço oficial `com.termux.app.RunCommandService` (ação `com.termux.RUN_COMMAND`) com uma lista fechada de ações: iniciar, parar, reiniciar, status e logs. Ele recebe stdout, stderr e código de saída por PendingIntent e atualiza a interface com o retorno do próprio Termux.
+O Termux bloqueia comandos de apps externos por padrão. No Termux, execute uma única vez:
 
-O diretório padrão do bot é `~/Robo-Nicolas`. O app usa os scripts existentes:
+```bash
+mkdir -p ~/.termux
+touch ~/.termux/termux.properties
+if grep -q '^[[:space:]]*allow-external-apps[[:space:]]*=' ~/.termux/termux.properties; then
+  sed -i 's/^[[:space:]]*allow-external-apps[[:space:]]*=.*/allow-external-apps=true/' ~/.termux/termux.properties
+else
+  printf '\nallow-external-apps=true\n' >> ~/.termux/termux.properties
+fi
+termux-reload-settings
+```
 
-- iniciar: `bash ~/Robo-Nicolas/start.sh`
-- parar: `bash ~/Robo-Nicolas/stop.sh`
+Depois, nas Configurações do Android:
+1. Apps > Nicolas Keep Alive > Permissões.
+2. Abra **Permissões adicionais**.
+3. Autorize **Run commands in Termux environment**.
+4. Volte ao app e toque em **ATUALIZAR STATUS**.
 
-Antes de usar:
-1. Abra o Termux e confirme que `~/Robo-Nicolas/start.sh` e `~/Robo-Nicolas/stop.sh` existem.
-2. No Termux, edite `~/.termux/termux.properties` e habilite `allow-external-apps=true`; depois execute `termux-reload-settings` ou reinicie o Termux.
-3. Nas configurações Android do Nicolas Keep Alive, conceda a permissão adicional **Run commands in Termux environment** (RUN_COMMAND).
-4. Mantenha Termux atualizado. O retorno dos comandos via PendingIntent requer Termux 0.109 ou superior.
-5. Abra o app e toque em INICIAR.
+A integração usa o serviço oficial `com.termux.app.RunCommandService` e a ação `com.termux.RUN_COMMAND`. Documentação: https://github.com/termux/termux-app/wiki/RUN_COMMAND-Intent
 
-A API RUN_COMMAND é documentada pelo próprio Termux: https://github.com/termux/termux-app/wiki/RUN_COMMAND-Intent
+## Comandos reais do Robô Nicolas
+
+A ponte executa apenas scripts fixos no diretório `~/Robo-Nicolas`:
+
+- Iniciar: `bash start-bg.sh`
+- Parar: `bash stop.sh`
+- Reiniciar: `bash stop.sh` e, depois, `bash start-bg.sh`
+- Status: confere o PID `data/bot.pid`, o gateway `python3 -m nicolas health`, a sessão `auth/creds.json` e o log `logs/supervisor.log`.
+- Logs: mostra as últimas linhas de `logs/supervisor.log` e `logs/bot.log`.
+
+O `start-bg.sh` do projeto exige que a primeira autenticação tenha sido feita pelo procedimento normal `bash start.sh`. Como o ZIP do bot não inclui a pasta privada `auth/`, a sessão existente deve permanecer no próprio aparelho.
 
 ## Sessão WhatsApp existente
 
-O app não apaga, copia, move, renomeia nem reinicializa `auth`, `.env`, banco SQLite ou arquivos pessoais. O comando de iniciar executa o `start.sh` instalado no diretório existente; portanto, o Baileys deve reutilizar a sessão já salva pelo Robô Nicolas.
+O app não apaga, move, renomeia, restaura nem substitui `auth/`, `.env`, SQLite ou arquivos do bot. Para iniciar em segundo plano, usa o `start-bg.sh` fornecido pelo próprio Robô Nicolas, que exige `auth/creds.json`. Se a sessão não existir ou o Baileys indicar autenticação inválida, o app não gera QR/código nem faz logout; informa que é necessária uma ação manual no Termux.
 
-O app não tenta gerar novo QR ou código de pareamento. Se o WhatsApp tiver invalidado a sessão, a interface informa que será necessária intervenção no Termux; a recuperação deve ser feita pelo fluxo normal do próprio Robô Nicolas.
+O estado **WhatsApp conectado** só é indicado quando a mensagem `Autenticado e conectado ao WhatsApp` no log é mais recente que as mensagens de reconexão/desconexão. É uma confirmação por log, não uma consulta direta ao WhatsApp.
 
-O indicador **Processo ativo** deriva do PID de inicialização guardado pelo script de controle. O indicador **WhatsApp conectado** somente aparece quando o log da execução atual contém a mensagem de autenticação bem-sucedida usada pelo Robô Nicolas: `Autenticado e conectado ao WhatsApp`. É uma confirmação de log, não uma chamada direta à API do WhatsApp.
+## Monitoramento
 
-## Monitoramento e limites do Android
+O Foreground Service consulta o status no Termux a cada 60 segundos. A recuperação automática do supervisor é limitada a uma tentativa por intervalo de 3 minutos e só é ativada após uma conexão WhatsApp previamente confirmada. O próprio `start.sh` mantém a supervisão interna do gateway e da ponte Baileys.
 
-O serviço de primeiro plano atualiza o status do Termux a cada 60 segundos. A reconexão automática só tenta reiniciar o processo depois que já houve uma conexão WhatsApp confirmada e a resposta posterior informa que o processo parou; há intervalo mínimo entre tentativas. A reconexão da conexão WebSocket/WhatsApp em si permanece sob responsabilidade do Baileys no Robô Nicolas.
+Android/Samsung ainda podem encerrar processos por economia de bateria, falta de memória ou reinicialização. Remova restrições de bateria para Nicolas Keep Alive e Termux. Nenhum aplicativo pode prometer disponibilidade permanente.
 
-O Android e a One UI podem encerrar processos por economia de bateria, memória ou reinicialização do aparelho. Permita notificações e remova restrições de bateria para Nicolas Keep Alive e Termux. Nenhum app Android pode garantir disponibilidade permanente.
+## Build e testes
 
-## Build
-
-O GitHub Actions executa `gradle check`, `gradle assembleDebug`, publica o APK debug e gera um ZIP do projeto-fonte completo como artefatos separados. Nenhuma sessão, segredo, banco ou arquivo `.env` do bot é empacotado.
+O GitHub Actions executa `gradle check` e `gradle assembleDebug`, publica o APK debug e o ZIP de fonte como artefatos. Nenhuma sessão, segredo, banco ou arquivo `.env` é enviado no repositório.

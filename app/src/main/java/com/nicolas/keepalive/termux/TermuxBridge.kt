@@ -1,6 +1,5 @@
 package com.nicolas.keepalive.termux
 
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -23,13 +22,13 @@ object TermuxBridge {
     const val KEY_AUTO_RESTART = "auto_restart"
     const val KEY_LAST_AUTO_RESTART_AT = "last_auto_restart_at"
 
-    private const val TERMUX_HOME = "/data/data/com.termux/files/home"
+    const val SETUP_COMMAND =
+        "mkdir -p ~/.termux && touch ~/.termux/termux.properties && " +
+        "if grep -q '^[[:space:]]*allow-external-apps[[:space:]]*=' ~/.termux/termux.properties; then " +
+        "sed -i 's/^[[:space:]]*allow-external-apps[[:space:]]*=.*/allow-external-apps=true/' ~/.termux/termux.properties; " +
+        "else printf '\\nallow-external-apps=true\\n' >> ~/.termux/termux.properties; fi && termux-reload-settings"
+
     private const val TERMUX_BASH = "/data/data/com.termux/files/usr/bin/bash"
-    private const val EXTRA_RESULT_BUNDLE = "result"
-    private const val EXTRA_STDOUT = "stdout"
-    private const val EXTRA_STDERR = "stderr"
-    private const val EXTRA_EXIT_CODE = "exitCode"
-    private const val EXTRA_ERRMSG = "errmsg"
 
     @Suppress("DEPRECATION")
     fun isInstalled(context: Context): Boolean = try {
@@ -55,10 +54,7 @@ object TermuxBridge {
     fun isReady(context: Context): Boolean =
         isInstalled(context) && hasRunCommandPermission(context)
 
-    /**
-     * Envia somente ações fixas e auditadas para o Termux.
-     * O app nunca recebe nem executa comandos arbitrários de um ZIP.
-     */
+    /** Só executa ações fechadas e scripts presentes no diretório já instalado do bot. */
     fun execute(context: Context, action: BotAction): Boolean {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -69,7 +65,7 @@ object TermuxBridge {
         if (!hasRunCommandPermission(context)) {
             prefs.edit().putString(
                 KEY_LAST_MESSAGE,
-                "Permissão RUN_COMMAND ausente. Autorize Nicolas Keep Alive nas permissões do Android."
+                "Permissão RUN_COMMAND ausente. Abra as permissões do Nicolas Keep Alive e autorize 'Run commands in Termux environment'."
             ).apply()
             return false
         }
@@ -81,23 +77,23 @@ object TermuxBridge {
                 putExtra(TermuxResultReceiver.EXTRA_ACTION, action.name)
                 putExtra(TermuxResultReceiver.EXTRA_REQUEST_ID, requestId)
             }
-            val pending = PendingIntent.getBroadcast(
+            val pending = android.app.PendingIntent.getBroadcast(
                 context,
                 requestId,
                 callback,
-                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_MUTABLE
+                android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_MUTABLE
             )
 
             val command = Intent("com.termux.RUN_COMMAND").apply {
                 setClassName(PACKAGE_TERMUX, "com.termux.app.RunCommandService")
                 putExtra("com.termux.RUN_COMMAND_PATH", TERMUX_BASH)
                 putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-lc", scriptFor(action)))
-                putExtra("com.termux.RUN_COMMAND_WORKDIR", TERMUX_HOME)
+                putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home")
                 putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
                 putExtra("com.termux.RUN_COMMAND_COMMAND_LABEL", "Nicolas Keep Alive: ${action.name}")
                 putExtra(
                     "com.termux.RUN_COMMAND_COMMAND_DESCRIPTION",
-                    "Ação controlada para gerenciar o Robô Nicolas em ~/Robo-Nicolas."
+                    "Ação controlada no Robô Nicolas já instalado em ~/Robo-Nicolas."
                 )
                 putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pending)
             }
@@ -105,7 +101,7 @@ object TermuxBridge {
             context.startService(command)
             prefs.edit()
                 .putString(KEY_LAST_ACTION, action.name)
-                .putString(KEY_LAST_MESSAGE, "Comando ${action.name} enviado ao Termux.")
+                .putString(KEY_LAST_MESSAGE, "Comando ${action.name} enviado ao Termux; aguardando resultado.")
                 .apply()
             true
         } catch (e: Exception) {
@@ -116,150 +112,122 @@ object TermuxBridge {
         }
     }
 
-    private fun scriptFor(action: BotAction): String = when (action) {
-        BotAction.START -> """
-            set -u
-            BOT_DIR="${'$'}HOME/Robo-Nicolas"
-            STATE_DIR="${'$'}HOME/.nicolas-keep-alive"
-            PID_FILE="${'$'}STATE_DIR/bot.pid"
-            LOG_FILE="${'$'}STATE_DIR/bot.log"
-            mkdir -p "${'$'}STATE_DIR"
-            if [ ! -f "${'$'}BOT_DIR/start.sh" ]; then
-                echo "ERRO: não encontrei ~/Robo-Nicolas/start.sh"
-                echo "BOT_PROCESS=STOPPED"
-                exit 20
-            fi
-            if [ -s "${'$'}PID_FILE" ]; then
-                OLD_PID="$(cat "${'$'}PID_FILE" 2>/dev/null || true)"
-                if [ -n "${'$'}OLD_PID" ] && kill -0 "${'$'}OLD_PID" 2>/dev/null; then
-                    echo "BOT_PROCESS=RUNNING"
-                    if grep -Fq "Autenticado e conectado ao WhatsApp" "${'$'}LOG_FILE" 2>/dev/null; then
-                        echo "WHATSAPP=CONNECTED"
-                    else
-                        echo "WHATSAPP=CONNECTING"
-                    fi
-                    exit 0
-                fi
-            fi
-            : > "${'$'}LOG_FILE"
-            cd "${'$'}BOT_DIR" || exit 21
-            nohup bash "${'$'}BOT_DIR/start.sh" >>"${'$'}LOG_FILE" 2>&1 </dev/null &
-            BOT_PID="${'$'}!"
-            printf '%s\n' "${'$'}BOT_PID" > "${'$'}PID_FILE"
-            sleep 5
-            if kill -0 "${'$'}BOT_PID" 2>/dev/null; then
-                echo "BOT_PROCESS=RUNNING"
-                if grep -Fq "Autenticado e conectado ao WhatsApp" "${'$'}LOG_FILE"; then
-                    echo "WHATSAPP=CONNECTED"
-                else
-                    echo "WHATSAPP=CONNECTING"
-                fi
-                exit 0
-            fi
-            rm -f "${'$'}PID_FILE"
-            echo "BOT_PROCESS=STOPPED"
-            echo "WHATSAPP=UNKNOWN"
-            tail -n 25 "${'$'}LOG_FILE" 2>/dev/null || true
-            exit 22
+    private fun scriptFor(action: BotAction): String {
+        val d = "$"
+        val root = "${d}HOME/Robo-Nicolas"
+        val state = """
+            BOT_DIR="$root"
+            cd "$root" || { echo "ERRO: diretório ~/Robo-Nicolas não encontrado"; exit 20; }
         """.trimIndent()
 
-        BotAction.STOP -> """
+        val status = """
             set +e
-            BOT_DIR="${'$'}HOME/Robo-Nicolas"
-            STATE_DIR="${'$'}HOME/.nicolas-keep-alive"
-            PID_FILE="${'$'}STATE_DIR/bot.pid"
-            if [ -f "${'$'}BOT_DIR/stop.sh" ]; then
-                cd "${'$'}BOT_DIR" && bash "${'$'}BOT_DIR/stop.sh"
-                STOP_CODE="${'$'}?"
+            PID_FILE="data/bot.pid"
+            SUPERVISOR_LOG="logs/supervisor.log"
+            PID=""
+            [ -s "$PID_FILE" ] && PID="$(cat "$PID_FILE" 2>/dev/null)"
+            PROCESS=STOPPED
+            if [[ "$PID" =~ ^[0-9]+$ ]] && kill -0 "$PID" 2>/dev/null && [ -r "/proc/$PID/cmdline" ]; then
+                CMD="$(tr '\\0' ' ' < "/proc/$PID/cmdline" 2>/dev/null)"
+                CWD="$(readlink "/proc/$PID/cwd" 2>/dev/null)"
+                if [ "$CWD" = "$BOT_DIR" ] && [[ "$CMD" == *start.sh* ]]; then PROCESS=RUNNING; fi
+            fi
+            echo "BOT_PROCESS=$PROCESS"
+            if [ "$PROCESS" = RUNNING ]; then
+                if python3 -m nicolas health >/dev/null 2>&1; then echo "GATEWAY=OK"; else echo "GATEWAY=ERROR"; fi
             else
-                STOP_CODE=0
+                echo "GATEWAY=STOPPED"
             fi
-            if [ -s "${'$'}PID_FILE" ]; then
-                BOT_PID="$(cat "${'$'}PID_FILE" 2>/dev/null)"
-                if [ -n "${'$'}BOT_PID" ] && kill -0 "${'$'}BOT_PID" 2>/dev/null; then
-                    kill -TERM "${'$'}BOT_PID" 2>/dev/null
-                    sleep 2
-                    kill -0 "${'$'}BOT_PID" 2>/dev/null && kill -KILL "${'$'}BOT_PID" 2>/dev/null
+            if [ -f auth/creds.json ]; then echo "SESSION=SAVED"; else echo "SESSION=MISSING"; fi
+            if [ -f "$SUPERVISOR_LOG" ]; then
+                OPEN_LINE="$(grep -nF 'Autenticado e conectado ao WhatsApp' "$SUPERVISOR_LOG" | tail -n 1 | cut -d: -f1)"
+                DROP_LINE="$(grep -nEi 'Reconectando|A conexão parece ter caído|A conexao parece ter caido|Encerrando a ponte|Desconexão pedida|Desconexao pedida' "$SUPERVISOR_LOG" | tail -n 1 | cut -d: -f1)"
+                AUTH_LINE="$(grep -nEi 'A pasta auth/ foi preservada|logged out|status code 401|invalid session|device removed' "$SUPERVISOR_LOG" | tail -n 1 | cut -d: -f1)"
+                OPEN_LINE="${OPEN_LINE:-0}"; DROP_LINE="${DROP_LINE:-0}"; AUTH_LINE="${AUTH_LINE:-0}"
+                if [ "$AUTH_LINE" -gt "$OPEN_LINE" ]; then
+                    echo "WHATSAPP=AUTH_REQUIRED"
+                elif [ "$OPEN_LINE" -gt 0 ] && [ "$OPEN_LINE" -gt "$DROP_LINE" ]; then
+                    echo "WHATSAPP=CONNECTED"
+                elif [ "$PROCESS" = RUNNING ] && [ -f auth/creds.json ]; then
+                    echo "WHATSAPP=CONNECTING"
+                else
+                    echo "WHATSAPP=DISCONNECTED"
                 fi
+            else
+                echo "WHATSAPP=UNKNOWN"
             fi
-            rm -f "${'$'}PID_FILE"
-            echo "BOT_PROCESS=STOPPED"
-            echo "WHATSAPP=STOPPED"
-            exit "${'$'}STOP_CODE"
         """.trimIndent()
 
-        BotAction.RESTART -> """
-            set +e
-            BOT_DIR="${'$'}HOME/Robo-Nicolas"
-            STATE_DIR="${'$'}HOME/.nicolas-keep-alive"
-            PID_FILE="${'$'}STATE_DIR/bot.pid"
-            mkdir -p "${'$'}STATE_DIR"
-            if [ -f "${'$'}BOT_DIR/stop.sh" ]; then
-                cd "${'$'}BOT_DIR" && bash "${'$'}BOT_DIR/stop.sh"
-            fi
-            if [ -s "${'$'}PID_FILE" ]; then
-                BOT_PID="$(cat "${'$'}PID_FILE" 2>/dev/null)"
-                [ -n "${'$'}BOT_PID" ] && kill -TERM "${'$'}BOT_PID" 2>/dev/null
-            fi
-            rm -f "${'$'}PID_FILE"
-            sleep 2
-            BOT_DIR="${'$'}HOME/Robo-Nicolas"
-            LOG_FILE="${'$'}STATE_DIR/bot.log"
-            if [ ! -f "${'$'}BOT_DIR/start.sh" ]; then
-                echo "ERRO: não encontrei ~/Robo-Nicolas/start.sh"
-                echo "BOT_PROCESS=STOPPED"
-                exit 20
-            fi
-            : > "${'$'}LOG_FILE"
-            cd "${'$'}BOT_DIR" || exit 21
-            nohup bash "${'$'}BOT_DIR/start.sh" >>"${'$'}LOG_FILE" 2>&1 </dev/null &
-            BOT_PID="${'$'}!"
-            printf '%s\n' "${'$'}BOT_PID" > "${'$'}PID_FILE"
-            sleep 5
-            if kill -0 "${'$'}BOT_PID" 2>/dev/null; then
-                echo "BOT_PROCESS=RUNNING"
-                if grep -Fq "Autenticado e conectado ao WhatsApp" "${'$'}LOG_FILE"; then
-                    echo "WHATSAPP=CONNECTED"
-                else
-                    echo "WHATSAPP=CONNECTING"
+        return when (action) {
+            BotAction.START -> """
+                set +e
+                $state
+                if [ ! -f .env ]; then echo "ERRO: .env não encontrado; o bot ainda não foi instalado/configurado."; echo "BOT_PROCESS=STOPPED"; exit 21; fi
+                if [ ! -f auth/creds.json ]; then
+                    echo "ERRO: sessão Baileys não encontrada. Por segurança, o app não cria um novo pareamento."
+                    echo "WHATSAPP=AUTH_REQUIRED"
+                    echo "Abra o Termux e faça o primeiro login manualmente com: cd ~/Robo-Nicolas && bash start.sh"
+                    exit 22
                 fi
+                if [ ! -f start-bg.sh ] || [ ! -f stop.sh ]; then echo "ERRO: scripts start-bg.sh/stop.sh não encontrados."; exit 23; fi
+                bash start-bg.sh
+                RC=$?
+                if [ "$RC" -ne 0 ]; then
+                    echo "BOT_PROCESS=STOPPED"
+                    tail -n 30 logs/supervisor.log 2>/dev/null
+                    exit "$RC"
+                fi
+                sleep 1
+                $status
                 exit 0
-            fi
-            rm -f "${'$'}PID_FILE"
-            echo "BOT_PROCESS=STOPPED"
-            tail -n 25 "${'$'}LOG_FILE" 2>/dev/null || true
-            exit 22
-        """.trimIndent()
+            """.trimIndent()
 
-        BotAction.STATUS -> """
-            STATE_DIR="${'$'}HOME/.nicolas-keep-alive"
-            PID_FILE="${'$'}STATE_DIR/bot.pid"
-            LOG_FILE="${'$'}STATE_DIR/bot.log"
-            BOT_PID=""
-            [ -s "${'$'}PID_FILE" ] && BOT_PID="$(cat "${'$'}PID_FILE" 2>/dev/null)"
-            if [ -n "${'$'}BOT_PID" ] && kill -0 "${'$'}BOT_PID" 2>/dev/null; then
-                echo "BOT_PROCESS=RUNNING"
-                if grep -Fq "Autenticado e conectado ao WhatsApp" "${'$'}LOG_FILE" 2>/dev/null; then
-                    echo "WHATSAPP=CONNECTED"
+            BotAction.STOP -> """
+                set +e
+                $state
+                if [ ! -f stop.sh ]; then echo "ERRO: stop.sh não encontrado."; exit 23; fi
+                bash stop.sh
+                RC=$?
+                if [ "$RC" -eq 0 ]; then
+                    echo "BOT_PROCESS=STOPPED"
+                    echo "WHATSAPP=STOPPED"
+                    echo "SESSAO_PRESERVADA=YES"
                 else
-                    echo "WHATSAPP=CONNECTING"
+                    echo "BOT_PROCESS=UNKNOWN"
                 fi
-            else
-                echo "BOT_PROCESS=STOPPED"
-                echo "WHATSAPP=DISCONNECTED"
-            fi
-            if grep -Eiq "logged out|status code 401|invalid session|device removed" "${'$'}LOG_FILE" 2>/dev/null; then
-                echo "WHATSAPP=AUTH_REQUIRED"
-            fi
-        """.trimIndent()
+                exit "$RC"
+            """.trimIndent()
 
-        BotAction.LOGS -> """
-            LOG_FILE="${'$'}HOME/.nicolas-keep-alive/bot.log"
-            if [ -f "${'$'}LOG_FILE" ]; then
-                tail -n 40 "${'$'}LOG_FILE"
-            else
-                echo "Ainda não existe log de execução."
-            fi
-        """.trimIndent()
+            BotAction.RESTART -> """
+                set +e
+                $state
+                if [ ! -f auth/creds.json ]; then echo "ERRO: sessão Baileys não encontrada; não será feito novo pareamento."; exit 22; fi
+                bash stop.sh
+                RC=$?
+                if [ "$RC" -ne 0 ]; then echo "ERRO: não consegui parar o processo atual."; exit "$RC"; fi
+                sleep 2
+                bash start-bg.sh
+                RC=$?
+                if [ "$RC" -ne 0 ]; then echo "BOT_PROCESS=STOPPED"; tail -n 30 logs/supervisor.log 2>/dev/null; exit "$RC"; fi
+                sleep 1
+                $status
+                exit 0
+            """.trimIndent()
+
+            BotAction.STATUS -> """
+                $state
+                $status
+                exit 0
+            """.trimIndent()
+
+            BotAction.LOGS -> """
+                $state
+                echo "----- logs/supervisor.log -----"
+                tail -n 40 logs/supervisor.log 2>/dev/null || true
+                echo "----- logs/bot.log -----"
+                tail -n 20 logs/bot.log 2>/dev/null || true
+                exit 0
+            """.trimIndent()
+        }
     }
 }

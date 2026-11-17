@@ -32,7 +32,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="monitoring and restarting the user's explicitly configured local Termux bot" />
+                android:value="monitoring the user's explicitly configured local Termux bot" />
         </service>
 
         <receiver

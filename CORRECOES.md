@@ -1,23 +1,21 @@
 # Correções do Nicolas Keep Alive
 
-## Correções aplicadas nesta revisão
-- Botões INICIAR, PARAR e REINICIAR enviam ações pré-definidas ao serviço oficial RUN_COMMAND do Termux.
-- A aplicação recebe stdout, stderr, código de saída e erros internos do Termux via PendingIntent.
-- A tela mostra separadamente processo do bot, estado WhatsApp e condição da integração Termux.
+## Integração real
+- Usa os scripts originais do ZIP do Robô Nicolas: `start-bg.sh` e `stop.sh`.
+- O comando STATUS consulta `data/bot.pid`, valida o diretório e o comando do PID, testa o gateway com `python3 -m nicolas health`, verifica `auth/creds.json` e analisa `logs/supervisor.log`.
+- O comando LOGS mostra `logs/supervisor.log` e `logs/bot.log`.
+- Resultado do Termux recebe stdout, stderr, exitCode, err e errmsg.
+- A interface inclui o procedimento para ativar `allow-external-apps=true` e para conceder RUN_COMMAND.
 - Serviço em primeiro plano consulta o estado a cada 60 segundos.
-- Reconexão automática limitada: só após uma conexão WhatsApp anteriormente confirmada e com intervalo mínimo de 3 minutos.
-- A execução utiliza os scripts existentes `~/Robo-Nicolas/start.sh` e `stop.sh`.
+- Recuperação automática limitada a uma tentativa a cada 3 minutos, somente depois de uma conexão WhatsApp confirmada.
 
-## Proteção dos dados
-- Não são executados comandos de limpeza de auth, QR, pareamento, banco, .env ou dados pessoais.
-- A sessão Baileys já salva permanece no diretório original.
-- O app só inicia o script existente. Se a sessão estiver inválida, um novo pareamento não é iniciado automaticamente.
+## Preservação
+- Não executa limpeza ou redefinição de `auth/`, `.env`, banco SQLite ou arquivos do projeto.
+- Usa o `start-bg.sh` original, que exige `auth/creds.json` e não faz novo pareamento.
+- Para parar, usa o `stop.sh` original, que preserva a sessão WhatsApp.
 
-## Pré-requisitos obrigatórios
-- Termux 0.109 ou superior.
-- `allow-external-apps=true` em `~/.termux/termux.properties`.
-- Permissão Android `com.termux.permission.RUN_COMMAND` concedida ao app.
-- Os scripts `start.sh` e `stop.sh` presentes em `~/Robo-Nicolas`.
+## Configuração obrigatória do dispositivo
+O Termux exige `allow-external-apps=true` em `~/.termux/termux.properties`, além da permissão Android `com.termux.permission.RUN_COMMAND`. O Nicolas Keep Alive mostra e copia o comando de configuração, mas o próprio usuário deve executá-lo no Termux, conforme a proteção de segurança do Termux.
 
-## Limite de validação
-A compilação Android pode ser validada pelo GitHub Actions. A execução real do processo e o estado WhatsApp precisam ser confirmados no aparelho, com a versão e sessão Baileys instaladas pelo usuário. O app reporta confirmação de conexão somente quando encontra a mensagem de autenticação no log capturado da execução.
+## Validação
+A integração foi adaptada ao conteúdo do ZIP Robo Nicolas v8. A compilação e testes Android devem ser confirmados pela nova execução do GitHub Actions; o funcionamento real do bot e o estado WhatsApp dependem da execução no SM-A075M com a pasta privada original do Termux.
