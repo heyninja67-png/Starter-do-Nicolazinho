@@ -1,20 +1,23 @@
-# CORRECOES
+# Correções do Nicolas Keep Alive
 
-## 1. Foreground Service
-Implementado serviço de primeiro plano com notificação persistente e WakeLock temporário.
+## Correções aplicadas nesta revisão
+- Botões INICIAR, PARAR e REINICIAR enviam ações pré-definidas ao serviço oficial RUN_COMMAND do Termux.
+- A aplicação recebe stdout, stderr, código de saída e erros internos do Termux via PendingIntent.
+- A tela mostra separadamente processo do bot, estado WhatsApp e condição da integração Termux.
+- Serviço em primeiro plano consulta o estado a cada 60 segundos.
+- Reconexão automática limitada: só após uma conexão WhatsApp anteriormente confirmada e com intervalo mínimo de 3 minutos.
+- A execução utiliza os scripts existentes `~/Robo-Nicolas/start.sh` e `stop.sh`.
 
-## 2. Termux
-A ponte foi isolada em `termux/`. Nenhum comando arbitrário de ZIP é executado.
+## Proteção dos dados
+- Não são executados comandos de limpeza de auth, QR, pareamento, banco, .env ou dados pessoais.
+- A sessão Baileys já salva permanece no diretório original.
+- O app só inicia o script existente. Se a sessão estiver inválida, um novo pareamento não é iniciado automaticamente.
 
-## 3. Pareamento
-Foi criado `PairingValidator` com SHA-256/HMAC. O APK não contém um código secreto fixo.
+## Pré-requisitos obrigatórios
+- Termux 0.109 ou superior.
+- `allow-external-apps=true` em `~/.termux/termux.properties`.
+- Permissão Android `com.termux.permission.RUN_COMMAND` concedida ao app.
+- Os scripts `start.sh` e `stop.sh` presentes em `~/Robo-Nicolas`.
 
-## 4. Dados
-O projeto distribuído não contém `.env`, banco, sessão WhatsApp ou credenciais do Robô Nicolas.
-
-## 5. Limitações conhecidas
-- A implementação de importação SAF/backup completo e execução real do Robô Nicolas ainda precisa ser conectada ao layout e ao protocolo exato do bot existente.
-- O serviço Android pode ser encerrado por políticas do fabricante.
-- A ponte Termux depende da instalação/configuração do Termux e da extensão escolhida.
-
-Essas limitações são intencionais: não foram mascaradas como funcionalidades já testadas.
+## Limite de validação
+A compilação Android pode ser validada pelo GitHub Actions. A execução real do processo e o estado WhatsApp precisam ser confirmados no aparelho, com a versão e sessão Baileys instaladas pelo usuário. O app reporta confirmação de conexão somente quando encontra a mensagem de autenticação no log capturado da execução.

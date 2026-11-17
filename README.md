@@ -1,46 +1,39 @@
-# Nicolas Keep Alive 🤖
+# Nicolas Keep Alive
 
-Painel Android para gerenciamento do Robô Nicolas executado no Termux.
+Aplicativo Android para controlar o Robô Nicolas que já está instalado no Termux. Este projeto mantém o nome, identidade roxa/dourada, navegação, estrutura de versões e validador de pareamento do aplicativo original.
 
-## Estado do projeto
+## Integração real com Termux
 
-Este repositório contém um projeto Android real, em Kotlin/Compose, com:
+O app usa o serviço oficial `com.termux.app.RunCommandService` (ação `com.termux.RUN_COMMAND`) com uma lista fechada de ações: iniciar, parar, reiniciar, status e logs. Ele recebe stdout, stderr e código de saída por PendingIntent e atualiza a interface com o retorno do próprio Termux.
 
-- Foreground Service e notificação persistente.
-- Estrutura modular para Termux, versões, pareamento, monitoramento e notificações.
-- Importação/gestão de versões planejada para usar Storage Access Framework.
-- Validador de pareamento criptográfico baseado no manifesto da versão.
-- Workflow GitHub Actions para APK debug.
-- Nenhum segredo ou `.env` do Robô Nicolas incluído.
+O diretório padrão do bot é `~/Robo-Nicolas`. O app usa os scripts existentes:
 
-**Importante:** o app não consegue garantir que o Android mantenha qualquer processo vivo indefinidamente. Fabricantes, economia de bateria, falta de RAM, reinicialização e ausência de internet podem interromper o bot.
+- iniciar: `bash ~/Robo-Nicolas/start.sh`
+- parar: `bash ~/Robo-Nicolas/stop.sh`
 
-## Termux
+Antes de usar:
+1. Abra o Termux e confirme que `~/Robo-Nicolas/start.sh` e `~/Robo-Nicolas/stop.sh` existem.
+2. No Termux, edite `~/.termux/termux.properties` e habilite `allow-external-apps=true`; depois execute `termux-reload-settings` ou reinicie o Termux.
+3. Nas configurações Android do Nicolas Keep Alive, conceda a permissão adicional **Run commands in Termux environment** (RUN_COMMAND).
+4. Mantenha Termux atualizado. O retorno dos comandos via PendingIntent requer Termux 0.109 ou superior.
+5. Abra o app e toque em INICIAR.
 
-A integração deve usar somente ações pré-definidas e uma ponte explícita (Termux:Tasker/Run Command quando disponível). O app não deve executar comandos arbitrários extraídos de ZIP.
+A API RUN_COMMAND é documentada pelo próprio Termux: https://github.com/termux/termux-app/wiki/RUN_COMMAND-Intent
 
-No dispositivo, confirme que o Termux e a extensão escolhida estão instalados e conceda as permissões solicitadas.
+## Sessão WhatsApp existente
 
-## Segurança de versões
+O app não apaga, copia, move, renomeia nem reinicializa `auth`, `.env`, banco SQLite ou arquivos pessoais. O comando de iniciar executa o `start.sh` instalado no diretório existente; portanto, o Baileys deve reutilizar a sessão já salva pelo Robô Nicolas.
 
-Cada pacote deve conter um manifesto com versão, identificador público de pareamento e SHA-256 do payload. O app calcula a impressão digital e valida o código de pareamento.
+O app não tenta gerar novo QR ou código de pareamento. Se o WhatsApp tiver invalidado a sessão, a interface informa que será necessária intervenção no Termux; a recuperação deve ser feita pelo fluxo normal do próprio Robô Nicolas.
 
-Arquivos pessoais do Robô Nicolas (SQLite, `.env`, sessão WhatsApp, credenciais etc.) devem ficar fora do pacote de versão. Antes de ativar uma versão, o gerenciador deve copiar esses dados para um backup seguro e restaurá-los no diretório de dados da versão.
+O indicador **Processo ativo** deriva do PID de inicialização guardado pelo script de controle. O indicador **WhatsApp conectado** somente aparece quando o log da execução atual contém a mensagem de autenticação bem-sucedida usada pelo Robô Nicolas: `Autenticado e conectado ao WhatsApp`. É uma confirmação de log, não uma chamada direta à API do WhatsApp.
 
-## Compilação no GitHub
+## Monitoramento e limites do Android
 
-1. Suba o projeto para um repositório.
-2. Abra **Actions**.
-3. Execute **Build Android APK** em **Run workflow**.
-4. Abra a execução concluída.
-5. Em **Artifacts**, baixe `nicolas-keep-alive-debug-apk`.
+O serviço de primeiro plano atualiza o status do Termux a cada 60 segundos. A reconexão automática só tenta reiniciar o processo depois que já houve uma conexão WhatsApp confirmada e a resposta posterior informa que o processo parou; há intervalo mínimo entre tentativas. A reconexão da conexão WebSocket/WhatsApp em si permanece sob responsabilidade do Baileys no Robô Nicolas.
 
-Não é necessário secret para APK debug.
+O Android e a One UI podem encerrar processos por economia de bateria, memória ou reinicialização do aparelho. Permita notificações e remova restrições de bateria para Nicolas Keep Alive e Termux. Nenhum app Android pode garantir disponibilidade permanente.
 
-## Samsung
+## Build
 
-Depois de instalar, permita notificações e desative/ajuste a otimização de bateria para o aplicativo e para o Termux. As telas e nomes podem variar conforme a versão do One UI.
-
-## Observação
-
-Este código-base não afirma que o APK foi compilado neste ambiente. A compilação oficial é feita pelo GitHub Actions.
+O GitHub Actions executa `gradle check`, `gradle assembleDebug`, publica o APK debug e gera um ZIP do projeto-fonte completo como artefatos separados. Nenhuma sessão, segredo, banco ou arquivo `.env` do bot é empacotado.
