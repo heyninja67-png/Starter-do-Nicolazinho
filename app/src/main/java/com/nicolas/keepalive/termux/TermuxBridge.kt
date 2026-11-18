@@ -141,7 +141,8 @@ object TermuxBridge {
             echo "A sessão antiga foi guardada. Iniciando pareamento novo no terminal do Termux..."
             echo "Escolha código de pareamento ou QR e conclua o login no WhatsApp."
             exec bash start.sh
-        """.trimIndent().replace('§', '
+        """.trimIndent().replace('§', '$')
+
         val state = """
             BOT_DIR="§HOME/Robo-Nicolas"
             cd "§HOME/Robo-Nicolas" || { echo "ERRO: diretório ~/Robo-Nicolas não encontrado"; exit 20; }
