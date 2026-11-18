@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
                     onAction = ::runBotAction,
                     onCopySetup = ::copySetupCommand,
                     onCopyPairing = ::copyPairingCommand,
+                    onNewSession = ::startNewSession,
                     onOpenAppSettings = ::openAppSettings,
                     onOpenTermux = ::openTermux,
                     onOpenBatterySettings = ::openBatterySettings,
@@ -98,6 +99,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun startNewSession() {
+        val started = TermuxBridge.startNewSession(this)
+        val prefs = getSharedPreferences(TermuxBridge.PREFS, Context.MODE_PRIVATE)
+        val message = prefs.getString(TermuxBridge.KEY_LAST_MESSAGE, "Não foi possível abrir o pareamento.")
+            ?: "Não foi possível abrir o pareamento."
+        Toast.makeText(
+            this,
+            if (started) "Terminal de pareamento aberto no Termux. Siga as instruções na tela." else message,
+            if (started) Toast.LENGTH_LONG else Toast.LENGTH_LONG
+        ).show()
+    }
     private fun copyText(label: String, value: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
@@ -160,6 +172,7 @@ private fun NicolasKeepAliveApp(
     onAction: (BotAction) -> Unit,
     onCopySetup: () -> Unit,
     onCopyPairing: () -> Unit,
+    onNewSession: () -> Unit,
     onOpenAppSettings: () -> Unit,
     onOpenTermux: () -> Unit,
     onOpenBatterySettings: () -> Unit,
@@ -207,7 +220,7 @@ private fun NicolasKeepAliveApp(
                     )
                     1 -> BotPage(processRunning, whatsappConnected, lastMessage, lastOutput, onAction)
                     2 -> VersionsPage(onOpenRepository)
-                    3 -> PairingPage(termuxInstalled, onCopyPairing, onOpenTermux)
+                    3 -> PairingPage(termuxInstalled, onCopyPairing, onOpenTermux, onNewSession)
                     else -> SettingsPage(
                         autoRestart, termuxPermission,
                         onAutoRestartChange = {
@@ -406,28 +419,58 @@ private fun VersionsPage(onOpenRepository: () -> Unit) {
 }
 
 @Composable
-private fun PairingPage(termuxInstalled: Boolean, onCopyPairing: () -> Unit, onOpenTermux: () -> Unit) {
-    PageColumn("Pareamento do WhatsApp", "O primeiro login é feito pelo próprio Termux") {
+private fun PairingPage(
+    termuxInstalled: Boolean,
+    onCopyPairing: () -> Unit,
+    onOpenTermux: () -> Unit,
+    onNewSession: () -> Unit
+) {
+    var confirmNewSession by remember { mutableStateOf(false) }
+    PageColumn("Pareamento do WhatsApp", "Gerencie a sessão Baileys do Robô Nicolas") {
         InfoCard(
-            "Sua sessão será preservada",
-            "O Nicolas Keep Alive não apaga auth/, não desconecta sua conta e não gera um novo QR automaticamente. Se a sessão já estiver salva e válida, basta iniciar o robô."
+            "Sessão atual protegida",
+            "O uso normal mantém a sessão salva em ~/Robo-Nicolas/auth. Para trocar uma sessão antiga, use a opção abaixo: ela primeiro para o bot e move a pasta auth para um backup, sem apagá-la."
         )
         StatusCard("Termux", if (termuxInstalled) "Instalado" else "Não encontrado")
         Button(
             onClick = onOpenTermux,
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Gold)
-        ) { Text("ABRIR TERMUX", color = Deep) }
+            colors = ButtonDefaults.buttonColors(containerColor = Purple)
+        ) { Text("ABRIR TERMUX") }
         OutlinedButton(onClick = onCopyPairing, modifier = Modifier.fillMaxWidth()) {
             Text("COPIAR COMANDO DE PRIMEIRO LOGIN")
         }
+        Button(
+            onClick = { confirmNewSession = true },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Gold)
+        ) { Text("TROCAR SESSÃO / NOVO PAREAMENTO", color = Deep) }
         InfoCard(
-            "Quando usar o comando",
-            "Somente se ainda não existir uma sessão salva ou se o WhatsApp tiver sido desconectado. No Termux, o comando é: cd ~/Robo-Nicolas && bash start.sh. Siga o menu de pareamento exibido no terminal."
+            "Depois do pareamento",
+            "Escolha código ou QR e conclua no WhatsApp. Quando aparecer a mensagem de conexão, pressione Ctrl+C no Termux para encerrar o modo interativo sem fazer logout. Volte ao app e toque em INICIAR ROBÔ para usar a sessão nova em segundo plano."
         )
+        if (confirmNewSession) {
+            AlertDialog(
+                onDismissRequest = { confirmNewSession = false },
+                title = { Text("Criar uma sessão nova?") },
+                text = {
+                    Text(
+                        "O bot será parado e a pasta auth atual será renomeada para auth.backup-DATA-HORA. Nada será apagado. Depois, o Termux abrirá o pareamento do WhatsApp em um terminal interativo. Você precisa ter acesso ao WhatsApp para confirmar a nova conexão."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmNewSession = false
+                        onNewSession()
+                    }) { Text("FAZER BACKUP E CONTINUAR") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmNewSession = false }) { Text("CANCELAR") }
+                }
+            )
+        }
     }
 }
-
 @Composable
 private fun SettingsPage(
     autoRestart: Boolean,
